@@ -1,40 +1,35 @@
-## import dependencies
-# stats
+# import dependencies
+# analysis
 import datetime as dt
 import numpy as np
 import pandas as pd
-
-# sqlalchemy
+# SQLAlchemy
 import sqlalchemy
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.orm import Session
-from sqlalchemy import create_engine, func
-
-#flask 
+from sqlalchemy import create_engine, func, inspect
+# Flask
 from flask import Flask, jsonify
 
-# Set up DB engine
-engine = create_engine("sqlite:///hawaii.sqlite")
+# connection to SQLite 
+engine = create_engine("sqlite:///Resources/hawaii.sqlite")
 
-#Reflect DB and tables
+# reflect schema of tables into classes
 Base = automap_base()
 Base.prepare(engine, reflect=True)
 
-#Store reference tables
+# Store class variables to reference table-data
 Measurement = Base.classes.measurement
 Station = Base.classes.station
 
-#Session link to DB
+# Session link to DB file
 session = Session(engine)
 
-## Setting up flask
-# define flask app
+# Instantiate flask app
 app = Flask(__name__)
 
-#Create routes
-# root of routes
-@app.route("/")
-
+# Defining root route
+@app.route('/')
 def welcome():
     return(
     '''
@@ -46,45 +41,56 @@ def welcome():
     /api/v1.0/temp/start/end
     ''')
 
-#Precipitation route
-@app.route("/api/v1.0/precipitation")
+# Precipitation route
+@app.route('/api/v1.0/precipitation')
 def precipitation():
+    # Get date 1 year from 8/23/17
     prev_year = dt.date(2017, 8, 23) - dt.timedelta(days=365)
-    precipitation = session.query(Measurement.date, Measurement.prcp).\
-        filter(Measurement.date >= prev_year).all()
+    precipitation = session.query(Measurement.date, Measurement.prcp) \
+            .filter(Measurement.date >= prev_year).all()
+    # create dictionary to hold percipitation and data
     precip = {date: prcp for date, prcp in precipitation}
     return jsonify(precip)
 
-#Stations route
-@app.route("/api/v1.0/stations")
+# Station Route
+@app.route('/api/v1.0/stations')
 def stations():
     results = session.query(Station.station).all()
+    # flatten array and convert to list
     stations = list(np.ravel(results))
+    # set json object to stations: value
     return jsonify(stations=stations)
 
-# Temp route
-@app.route("/api/v1.0/tobs")
+# Temperature Route
+@app.route('/api/v1.0/tobs')
 def temp_monthly():
     prev_year = dt.date(2017, 8, 23) - dt.timedelta(days=365)
-    results = session.query(Measurement.tobs).\
-        filter(Measurement.station == 'USC00519281').\
-            filter(Measurement.date >= prev_year).all()
+    most_active = session.query(Measurement.station, func.count(Measurement.station)) \
+            .group_by(Measurement.station).order_by(func.count(Measurement.station).desc()).first()
+    # query to get temp obs for the most active
+    results = session.query(Measurement.tobs).filter(Measurement.station == most_active[0]) \
+            .filter(Measurement.date >= prev_year).all()
+    # flatten array
     temps = list(np.ravel(results))
     return jsonify(temps=temps)
 
-# Stats route
-@app.route("/api/v1.0/temp/<start>")
-@app.route("/api/v1.0/temp/<start>/<end>")
+# Statistics Route - temp data by user inputed date
+@app.route('/api/v1.0/temp/<start>')
+@app.route('/api/v1.0/temp/<start>/<end>')
+# set default to None - to remove filters
 def stats(start=None, end=None):
+    # list variable to hold query
     sel = [func.min(Measurement.tobs), func.max(Measurement.tobs), func.avg(Measurement.tobs)]
-
+    # if no end date supplied
     if not end:
         results = session.query(*sel).filter(Measurement.date >= start).all()
         temps = list(np.ravel(results))
         return jsonify(temps=temps)
-
-    results = session.query(*sel).filter(Measurement.date >= start).\
-        filter(Measurement.date <= end).all()
+    
+    results = session.query(*sel).filter(Measurement.date >= start).filter(Measurement.date <= end).all()
     temps = list(np.ravel(results))
     return jsonify(temps=temps)
 
+# run as script from app
+if __name__ == '__main__':
+    app.run(debug=True)
